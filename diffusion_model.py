@@ -1,7 +1,8 @@
+
 from typing import Dict, Tuple
 from tqdm import tqdm
 import os
-os.makedirs('./data/diffusion_outputs10', exist_ok=True)
+os.makedirs(\'./data/diffusion_outputs10\', exist_ok=True)
 
 import torch
 import torch.nn as nn
@@ -14,6 +15,13 @@ from torchvision.utils import save_image, make_grid
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 import numpy as np
+import random
+
+def set_seed(seed=0):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
 
 def create_mnist_dataloaders(batch_size, image_size=32, num_workers=0):
     
@@ -24,14 +32,14 @@ def create_mnist_dataloaders(batch_size, image_size=32, num_workers=0):
     ])
 
     train_dataset = torchvision.datasets.MNIST(
-        root="./mnist_data",
+        root=\"./mnist_data\",
         train=True,
         download=True,
         transform=preprocess
     )
     
     test_dataset = torchvision.datasets.MNIST(
-        root="./mnist_data", 
+        root=\"./mnist_data\", 
         train=False,
         download=True,
         transform=preprocess
@@ -148,22 +156,23 @@ class ContextUnet(nn.Module):
         c = c * context_mask
         cemb1 = self.contextembed1(c).view(-1, self.n_feat * 2, 1, 1)
         temb1 = self.timeembed1(t).view(-1, self.n_feat * 2, 1, 1)
+        temb1 = temb1.repeat(1, 1, x.shape[2], x.shape[3]) # Expand time embedding to match spatial dimensions
         cemb2 = self.contextembed2(c).view(-1, self.n_feat, 1, 1)
         temb2 = self.timeembed2(t).view(-1, self.n_feat, 1, 1)
+        temb2 = temb2.repeat(1, 1, down1.shape[2], down1.shape[3]) # Expand time embedding to match spatial dimensions
         up1 = self.up0(hiddenvec)
         up2 = self.up1(cemb1*up1+ temb1, down2)
         up3 = self.up2(cemb2*up2+ temb2, down1)
         out = self.out(torch.cat((up3, x), 1))
         return out
 
-
-def ddpm_schedules(beta1, beta2, T, schedule_type='linear'):
-    if schedule_type == 'linear':
+def ddpm_schedules(beta1, beta2, T, schedule_type=\'linear\'):
+    if schedule_type == \'linear\':
         beta_t = (beta2 - beta1) * torch.arange(0, T + 1, dtype=torch.float32) / T + beta1
         sqrt_beta_t = torch.sqrt(beta_t)
         alpha_t = 1 - beta_t
         alphabar_t = torch.cumsum(torch.log(alpha_t), dim=0).exp()
-    elif schedule_type == 'cosine':
+    elif schedule_type == \'cosine\':
         s = 0.008
         steps = T + 1
         x = torch.linspace(0, T, steps)
@@ -183,33 +192,32 @@ def ddpm_schedules(beta1, beta2, T, schedule_type='linear'):
     mab_over_sqrtmab_inv = (1 - alpha_t) / sqrtmab
 
     return {
-        "alpha_t": alpha_t,
-        "oneover_sqrta": oneover_sqrta,
-        "sqrt_beta_t": sqrt_beta_t,
-        "alphabar_t": alphabar_t,
-        "sqrtab": sqrtab,
-        "sqrtmab": sqrtmab,
-        "mab_over_sqrtmab": mab_over_sqrtmab_inv,
+        \"alpha_t\": alpha_t,
+        \"oneover_sqrta\": oneover_sqrta,
+        \"sqrt_beta_t\": sqrt_beta_t,
+        \"alphabar_t\": alphabar_t,
+        \"sqrtab\": sqrtab,
+        \"sqrtmab\": sqrtmab,
+        \"mab_over_sqrtmab\": mab_over_sqrtmab_inv,
     }
 
-
 T = 400
-linear_sched = ddpm_schedules(1e-4, 0.02, T, 'linear')
-cosine_sched = ddpm_schedules(1e-4, 0.02, T, 'cosine')
+linear_sched = ddpm_schedules(1e-4, 0.02, T, \'linear\')
+cosine_sched = ddpm_schedules(1e-4, 0.02, T, \'cosine\')
 plt.figure(figsize=(10, 6))
-plt.plot(linear_sched['alphabar_t'].numpy(), label='Linear')
-plt.plot(cosine_sched['alphabar_t'].numpy(), label='Cosine')
-plt.xlabel('Timestep t')
-plt.ylabel('Alphabar_t')
-plt.title('Comparison of Noise Schedules')
+plt.plot(linear_sched[\'alphabar_t\'].numpy(), label=\'Linear\')
+plt.plot(cosine_sched[\'alphabar_t\'].numpy(), label=\'Cosine\')
+plt.xlabel(\'Timestep t\')
+plt.ylabel(\'Alphabar_t\')
+plt.title(\'Comparison of Noise Schedules\')
 plt.legend()
 plt.grid(True)
-plt.savefig('./data/diffusion_outputs10/schedule_comparison.png')
-plt.show()
+plt.savefig(\'./data/diffusion_outputs10/schedule_comparison.png\')
+plt.close() # Close plot to prevent display issues
 
 
 class DDPM(nn.Module):
-    def __init__(self, nn_model, betas, n_T, device, drop_prob=0.1, schedule_type='linear'):
+    def __init__(self, nn_model, betas, n_T, device, drop_prob=0.1, schedule_type=\'linear\'):
         super(DDPM, self).__init__()
         self.nn_model = nn_model.to(device)
         for k, v in ddpm_schedules(betas[0], betas[1], n_T, schedule_type).items():
@@ -254,7 +262,6 @@ class DDPM(nn.Module):
                 x_i_store.append(x_i.detach().cpu().numpy())
         return x_i, np.array(x_i_store)
 
-
 def ddim_sample(self, n_sample, size, device, guide_w=0.0, ddim_steps=50, eta=0.0):
     device = torch.device(device)
     n_T = self.n_T
@@ -292,44 +299,24 @@ def ddim_sample(self, n_sample, size, device, guide_w=0.0, ddim_steps=50, eta=0.
     return x_i, np.array(x_i_store)
 DDPM.ddim_sample = ddim_sample
 
-
-def set_seed(seed=42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-def train_mnist(schedule_type='linear'):
+def train_mnist(schedule_type=\'linear\', n_epoch=2, batch_size=128, n_feat=32, n_T=50, lrate=1e-4, device=\'cpu\', drop_prob=0.1, save_dir=\'./data/diffusion_outputs10/\'):
 
     imagesize = 32
-    # hardcoding these here
-    n_epoch = 1
-    batch_size = 256
-    n_T = 50 # 500
-    device = torch.device('cpu')
     n_classes = 10
-    n_feat = 32 # 128 ok, 256 better (but slower)
-    lrate = 1e-4
     save_model = True
-    save_dir = './data/diffusion_outputs10/'
     ws_test = [2.0] # strength of generative guidance
 
     ddpm = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=n_classes), betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1, schedule_type=schedule_type)
     ddpm.to(device)
 
-    # optionally load a model
-    # ddpm.load_state_dict(torch.load("./data/diffusion_outputs/ddpm_unet01_mnist_9.pth"))
-
     dataloader, _ = create_mnist_dataloaders(batch_size=batch_size, image_size=imagesize, num_workers=0)
     optim = torch.optim.Adam(ddpm.parameters(), lr=lrate)
 
     for ep in range(n_epoch):
-        print(f'epoch {ep}')
+        print(f\"Training {schedule_type} Schedule - epoch {ep}\")
         ddpm.train()
 
-        # linear lrate decay
-        optim.param_groups[0]['lr'] = lrate*(1-ep/n_epoch)
+        optim.param_groups[0][\'lr\'] = lrate*(1-ep/n_epoch)
 
         pbar = tqdm(dataloader)
         loss_ema = None
@@ -343,18 +330,15 @@ def train_mnist(schedule_type='linear'):
                 loss_ema = loss.item()
             else:
                 loss_ema = 0.95 * loss_ema + 0.05 * loss.item()
-            pbar.set_description(f"loss: {loss_ema:.4f}")
+            pbar.set_description(f\"loss: {loss_ema:.4f}\")
             optim.step()
         
-        # for eval, save an image of currently generated samples (top rows)
-        # followed by real images (bottom rows)
         ddpm.eval()
         with torch.no_grad():
-            n_sample = 1*n_classes
+            n_sample = n_classes
             for w_i, w in enumerate(ws_test):
                 x_gen, x_gen_store = ddpm.sample(n_sample, (1, 32, 32), device, guide_w=w)
 
-                # append some real images at bottom, order by class also
                 x_real = torch.Tensor(x_gen.shape).to(device)
                 for k in range(n_classes):
                     for j in range(int(n_sample/n_classes)):
@@ -366,19 +350,16 @@ def train_mnist(schedule_type='linear'):
 
                 x_all = torch.cat([x_gen, x_real])
                 grid = make_grid(x_all*-1 + 1, nrow=10)
-                save_image(grid, save_dir + f"{schedule_type}_image_ep{ep}_w{w}.png")
-                print('saved image at ' + save_dir + f"{schedule_type}_image_ep{ep}_w{w}.png")
+                save_image(grid, save_dir + f\"{schedule_type}_image_ep{ep}_w{w}.png\")
+                print(\'saved image at \' + save_dir + f\"{schedule_type}_image_ep{ep}_w{w}.png\")
 
-                if ep%5==0 or ep == int(n_epoch-1):
-                    # create gif of images evolving over time, based on x_gen_store
-                    fig, axs = plt.subplots(nrows=int(n_sample/n_classes), ncols=n_classes,sharex=True,sharey=True,figsize=(8,3))
-                    print('saved image at ' + save_dir + f"gif_ep{ep}_w{w}.gif")
-        # optionally save model
+                # Removed GIF generation for faster execution and to avoid matplotlib issues in sandbox
+        
         if save_model and ep == int(n_epoch-1):
-            torch.save(ddpm.state_dict(), save_dir + f"model_{ep}.pth")
-            print('saved model at ' + save_dir + f"model_{ep}.pth")
+            torch.save(ddpm.state_dict(), save_dir + f\"{schedule_type}_model_{ep}.pth\")
+            print(\'saved model at \' + save_dir + f\"{schedule_type}_model_{ep}.pth\")
 
-def generate_samples(model_path, save_dir, n_samples=40, image_size=(1, 32, 32), device="cuda"):
+def generate_samples(model_path, save_dir, n_samples=40, image_size=(1, 32, 32), device=\"cpu\"):
     device = torch.device(device)
     n_classes = 10
     n_feat = 32
@@ -388,7 +369,7 @@ def generate_samples(model_path, save_dir, n_samples=40, image_size=(1, 32, 32),
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
-    stuid_digits = [0, 1, 2, 3, 4, 5, 6]
+    stuid_digits = [0, 1, 2, 3, 4, 5, 6] # Example StuID digits
     n_sample = len(stuid_digits)
     with torch.no_grad():
         x_i = torch.randn(n_sample, *image_size).to(device)
@@ -411,59 +392,60 @@ def generate_samples(model_path, save_dir, n_samples=40, image_size=(1, 32, 32),
             sqrt_beta_t = model.sqrt_beta_t[i]
             x_i = oneover_sqrta * (x_i - mab_over_sqrtmab * eps) + sqrt_beta_t * z
         grid = make_grid(x_i*-1 + 1, nrow=len(stuid_digits))
-        save_image(grid, save_dir + "A0123456J_Manus_Assignment_4.jpg")
-        print(f"Generated StuID image at {save_dir}A0123456J_Manus_Assignment_4.jpg")
+        save_image(grid, save_dir + \"A0123456J_Manus_Assignment_4.jpg\")
+        print(f\"Generated StuID image at {save_dir}A0123456J_Manus_Assignment_4.jpg\")
 
 
-if __name__ == "__main__":
+if __name__ == \"__main__\":
     set_seed()
-    print("Starting Linear Schedule Training...")
-    train_mnist(schedule_type='linear')
-    print("Starting Cosine Schedule Training...")
-    train_mnist(schedule_type='cosine')
-    # Run comparison experiments
-    print("Running DDIM comparison experiments...")
-    # Load the trained model for comparison
-    model_path = './data/diffusion_outputs10/model_4.pth'
-    device = torch.device('cpu')
+    print(\"Starting Diffusion Model Project...\")
+
+    # Global parameters for training and sampling
+    n_epoch = 2  # Reduced epochs for faster execution in sandbox
+    batch_size = 128
+    n_feat = 32  # Reduced features for faster execution
     n_classes = 10
-    n_feat = 32
-    n_T = 50
+    lrate = 1e-4
+    device = torch.device(\'cpu\') # Force CPU for sandbox compatibility
+    n_T = 50 # Reduced timesteps for faster execution
+    drop_prob = 0.1
+    save_dir = \'./data/diffusion_outputs10/\'
 
-    ddpm_model = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=n_classes),
-                      betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1, schedule_type='cosine')
-    ddpm_model.load_state_dict(torch.load(model_path, map_location=device))
-    ddpm_model.to(device)
-    ddpm_model.eval()
+    # 1. Train with Linear Schedule
+    train_mnist(schedule_type=\'linear\', n_epoch=n_epoch, batch_size=batch_size, n_feat=n_feat, n_T=n_T, lrate=lrate, device=device, drop_prob=drop_prob, save_dir=save_dir)
 
-    # DDPM sampling (full steps)
+    # 2. Train with Cosine Schedule
+    train_mnist(schedule_type=\'cosine\', n_epoch=n_epoch, batch_size=batch_size, n_feat=n_feat, n_T=n_T, lrate=lrate, device=device, drop_prob=drop_prob, save_dir=save_dir)
+
+    # 3. DDPM vs DDIM Sampling Comparison
+    print(\"Running DDPM vs DDIM sampling comparison...\")
+    # Use the model from the last epoch of cosine training for sampling comparison
+    model_path_for_sampling = save_dir + f\"cosine_model_{n_epoch-1}.pth\"
+    
+    model_for_sampling = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=n_classes),
+                              betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=drop_prob, schedule_type=\'cosine\'
+                              )
+    model_for_sampling.load_state_dict(torch.load(model_path_for_sampling, map_location=device))
+    model_for_sampling.to(device)
+    model_for_sampling.eval()
+
+    n_sample_comparison = n_classes  # Generate one of each digit for comparison
+
+    # DDPM sampling (full steps, n_T)
     with torch.no_grad():
-        n_sample = n_classes  # Generate one of each digit
-        x_gen_ddpm, _ = ddpm_model.sample(n_sample, (1, 32, 32), device, guide_w=2.0)
+        x_gen_ddpm, _ = model_for_sampling.sample(n_sample_comparison, (1, 32, 32), device, guide_w=2.0)
         grid_ddpm = make_grid(x_gen_ddpm * -1 + 1, nrow=n_classes)
-        save_image(grid_ddpm, './data/diffusion_outputs10/ddpm_full_sample.png')
-        print("Saved DDPM full sample image.")
+        save_image(grid_ddpm, save_dir + \'ddpm_full_sample.png\')
+        print(\"Saved DDPM full sample image.\")
 
     # DDIM sampling with different step counts
-    ddim_steps_list = [10, 20, 50]
+    ddim_steps_list = [10, 20, 50] # Adjusted for n_T=50
     for ddim_steps in ddim_steps_list:
         with torch.no_grad():
-            x_gen_ddim, _ = ddpm_model.ddim_sample(n_sample, (1, 32, 32), device, guide_w=2.0, ddim_steps=ddim_steps)
+            x_gen_ddim, _ = model_for_sampling.ddim_sample(n_sample_comparison, (1, 32, 32), device, guide_w=2.0, ddim_steps=ddim_steps)
             grid_ddim = make_grid(x_gen_ddim * -1 + 1, nrow=n_classes)
-            save_image(grid_ddim, f'./data/diffusion_outputs10/ddim_sample_{ddim_steps}_steps.png')
-            print(f"Saved DDIM sample with {ddim_steps} steps.")
+            save_image(grid_ddim, save_dir + f\"ddim_sample_{ddim_steps}_steps.png\")
+            print(f\"Saved DDIM sample with {ddim_steps} steps.\")
 
-    # Generate the final required image (StuID)
-    generate_samples('./data/diffusion_outputs10/model_4.pth', './data/diffusion_outputs10/', device='cpu')
-
-
-################################
-# Your code starts here
-# Run comparison experiments and save results
-################################
-
-
-
-################################
-# Your code ends here
-################################
+    # 4. Generate the final required image (StuID)
+    generate_samples(model_path_for_sampling, save_dir, device=device)
